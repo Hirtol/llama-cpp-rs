@@ -268,6 +268,33 @@ impl LlamaContextParams {
         self.context_params.n_threads = n_threads;
         self
     }
+
+    /// Check whether embeddings are enabled
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// let params = llama_cpp_2::context::params::LlamaContextParams::default();
+    /// assert!(!params.embedding());
+    /// ```
+    #[must_use] pub fn embedding(&self) -> bool {
+        self.context_params.embedding
+    }
+
+    /// Enable the use of embeddings
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use llama_cpp_2::context::params::LlamaContextParams;
+    /// let params = LlamaContextParams::default()
+    ///    .with_embedding(true);
+    /// assert!(params.embedding());
+    /// ```
+    #[must_use] pub fn with_embedding(mut self, embedding: bool) -> Self {
+        self.context_params.embedding = embedding;
+        self
+    }
 }
 
 /// Default parameters for `LlamaContext`. (as defined in llama.cpp by `llama_context_default_params`)
