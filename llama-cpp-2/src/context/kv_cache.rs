@@ -14,6 +14,11 @@ impl LlamaContext<'_> {
         unsafe { llama_cpp_sys_2::llama_kv_cache_seq_cp(self.context.as_ptr(), src, dest, 0, size) }
     }
 
+    /// Clear the KV cache
+    pub fn clear_kv_cache(&self) {
+        unsafe { llama_cpp_sys_2::llama_kv_cache_clear(self.context.as_ptr()) }
+    }
+
     /// Clear the kv cache for the given sequence.
     ///
     /// # Parameters

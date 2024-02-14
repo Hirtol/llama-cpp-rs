@@ -2,15 +2,15 @@
 
 use std::fmt::{Debug, Formatter};
 use std::num::NonZeroI32;
+use std::ptr::NonNull;
+use std::slice;
 
+use crate::DecodeError;
 use crate::llama_batch::LlamaBatch;
 use crate::model::LlamaModel;
 use crate::timing::LlamaTimings;
 use crate::token::data::LlamaTokenData;
 use crate::token::LlamaToken;
-use crate::DecodeError;
-use std::ptr::NonNull;
-use std::slice;
 
 pub mod kv_cache;
 pub mod params;
@@ -79,12 +79,27 @@ impl<'model> LlamaContext<'model> {
         }
     }
 
+    /// Get the embeddings for the `i`th sequence in the current context.
+    ///
+    /// # Returns
+    ///
+    /// A slice containing the embeddings for the last decoded batch.
+    /// The size corresponds to the `n_embd` parameter of the context's model.
+    pub fn embeddings_ith(&self, i: i32) -> &[f32] {
+        unsafe {
+            std::slice::from_raw_parts(
+                llama_cpp_sys_2::llama_get_embeddings_ith(self.context.as_ptr(), i),
+                self.model.n_embd() as usize,
+            )
+        }
+    }
+
     /// Get the logits for the ith token in the context.
     ///
     /// # Panics
     ///
     /// - logit `i` is not initialized.
-    pub fn candidates_ith(&self, i: i32) -> impl Iterator<Item = LlamaTokenData> + '_ {
+    pub fn candidates_ith(&self, i: i32) -> impl Iterator<Item=LlamaTokenData> + '_ {
         (0_i32..).zip(self.get_logits_ith(i)).map(|(i, logit)| {
             let token = LlamaToken::new(i);
             LlamaTokenData::new(token, *logit, 0_f32)
@@ -127,6 +142,11 @@ impl<'model> LlamaContext<'model> {
     pub fn timings(&mut self) -> LlamaTimings {
         let timings = unsafe { llama_cpp_sys_2::llama_get_timings(self.context.as_ptr()) };
         LlamaTimings { timings }
+    }
+
+    /// Returns a reference to the raw [llama_cpp_sys_2::llama_context] pointer.
+    pub fn raw_ctx(&self) -> &NonNull<llama_cpp_sys_2::llama_context> {
+        &self.context
     }
 }
 

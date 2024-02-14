@@ -1,15 +1,16 @@
 //! A safe wrapper around `llama_model`.
-use crate::context::params::LlamaContextParams;
-use crate::context::LlamaContext;
-use crate::llama_backend::LlamaBackend;
-use crate::model::params::LlamaModelParams;
-use crate::token::LlamaToken;
-use crate::token_type::LlamaTokenType;
-use crate::{LlamaContextLoadError, LlamaModelLoadError, StringToTokenError, TokenToStringError};
 use std::ffi::CString;
 use std::os::raw::c_int;
 use std::path::Path;
 use std::ptr::NonNull;
+
+use crate::{LlamaContextLoadError, LlamaModelLoadError, StringToTokenError, TokenToStringError};
+use crate::context::LlamaContext;
+use crate::context::params::LlamaContextParams;
+use crate::llama_backend::LlamaBackend;
+use crate::model::params::LlamaModelParams;
+use crate::token::LlamaToken;
+use crate::token_type::LlamaTokenType;
 
 pub mod params;
 
@@ -29,6 +30,7 @@ pub enum AddBos {
     /// Do not add the beginning of stream token to the start of the string.
     Never,
 }
+
 unsafe impl Send for LlamaModel {}
 
 unsafe impl Sync for LlamaModel {}
@@ -49,11 +51,12 @@ impl LlamaModel {
     /// Get all tokens in the model.
     pub fn tokens(
         &self,
-    ) -> impl Iterator<Item = (LlamaToken, Result<String, TokenToStringError>)> + '_ {
+    ) -> impl Iterator<Item=(LlamaToken, Result<String, TokenToStringError>)> + '_ {
         (0..self.n_vocab())
             .map(LlamaToken::new)
             .map(|llama_token| (llama_token, self.token_to_str(llama_token)))
     }
+
     /// Get the beginning of stream token.
     #[must_use]
     pub fn token_bos(&self) -> LlamaToken {
@@ -277,7 +280,7 @@ impl LlamaModel {
     /// # Errors
     ///
     /// See [`LlamaModelLoadError`] for more information.
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(skip_all, fields(params))]
     pub fn load_from_file(
         _: &LlamaBackend,
         path: impl AsRef<Path>,
@@ -291,13 +294,11 @@ impl LlamaModel {
 
         let cstr = CString::new(path)?;
         let llama_model = unsafe {
-            println!("{:?}", params.params);
             llama_cpp_sys_2::llama_load_model_from_file(cstr.as_ptr(), params.params)
         };
 
         let model = NonNull::new(llama_model).ok_or(LlamaModelLoadError::NullResult)?;
 
-        println!("Loaded {path:?}");
         Ok(LlamaModel { model })
     }
 

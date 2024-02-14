@@ -6,22 +6,19 @@
     clippy::cast_sign_loss
 )]
 
-use anyhow::{bail, Context, Result};
+use std::ffi::CStr;
+use std::path::PathBuf;
+
+use anyhow::{Context, Result};
 use clap::Parser;
+
 use llama_cpp_2::context::params::LlamaContextParams;
-use llama_cpp_2::ggml_time_us;
 use llama_cpp_2::llama_backend::LlamaBackend;
 use llama_cpp_2::llama_batch::LlamaBatch;
 use llama_cpp_2::model::params::LlamaModelParams;
 use llama_cpp_2::model::AddBos;
 use llama_cpp_2::model::LlamaModel;
-use llama_cpp_2::token::data_array::LlamaTokenDataArray;
-use std::ffi::CStr;
-use std::io::Write;
-use std::num::NonZeroU32;
-use std::path::PathBuf;
-use std::slice;
-use std::time::Duration;
+use llama_cpp_2::token::LlamaToken;
 
 #[derive(clap::Parser)]
 struct Args {
@@ -59,7 +56,6 @@ fn main() -> Result<()> {
 
     // initialize the context
     let ctx_params = LlamaContextParams::default()
-        // .with_n_ctx(NonZeroU32::new(2048))
         .with_n_threads(std::thread::available_parallelism()?.get() as u32)
         .with_embedding(true)
         .with_seed(1234);
@@ -68,10 +64,10 @@ fn main() -> Result<()> {
         .new_context(&backend, ctx_params)
         .with_context(|| "unable to create the llama_context")?;
 
-    let n_ctx_train = unsafe { llama_cpp_sys_2::llama_n_ctx_train(model.model.as_ptr()) };
+    let n_ctx_train = model.n_ctx_train();
     let n_ctx = ctx.n_ctx();
 
-    println!("N_CTX_TRAIN: {n_ctx_train} - n_ctx: {n_ctx}");
+    println!("N_CTX_TRAIN: {n_ctx_train} - N_CTX: {n_ctx}");
 
     if n_ctx > n_ctx_train as u32 {
         anyhow::bail!("N_CTX is greater than the training context size!");
@@ -82,20 +78,27 @@ fn main() -> Result<()> {
         println!("System Info: {:?}", p)
     }
 
-    let mut tokens = model.str_to_token(&params.prompt, AddBos::Always)?;
-    println!("Number of tokens: {}", tokens.len());
-    for token in &tokens {
-        println!("{}", model.token_to_str(*token)?);
-    }
+    let mut batch = LlamaBatch::new(512, n_ctx as i32);
+    let mut data = Vec::new();
+    let normalise = true;
 
-    if tokens.len() > n_ctx as usize {
-        anyhow::bail!(
-            "Prompt (`{}`) is longer than context window (`{n_ctx}`)",
-            tokens.len()
-        )
-    }
+    let mut decode_batch = |sizes: &[usize], batch: &mut LlamaBatch| unsafe {
+        ctx.clear_kv_cache();
+        let _ = ctx.decode(batch);
+        batch.clear();
 
-    let mut batch = LlamaBatch::new(512, 1);
+        for (i, &size) in sizes.iter().enumerate() {
+            let embedding = ctx.embeddings_ith(i as i32);
+            // Either normalise immediately, or perform mean-pooling.
+            let embedding = if normalise {
+                normalize(embedding)
+            } else {
+                embedding.iter().map(|x| x / size as f32).collect()
+            };
+
+            data.push(embedding);
+        }
+    };
 
     let mut total_tokens = 0;
     let mut t_batch = 0;
@@ -104,69 +107,56 @@ fn main() -> Result<()> {
     for text in [params.prompt] {
         let mut tokens = model.str_to_token(&text, AddBos::Always)?;
 
+        print_tokens(&model, &tokens);
+        // Force the prompt to be at most the size of the context
         tokens.truncate(n_ctx as usize);
         let n_tokens = tokens.len();
         total_tokens += n_tokens;
 
         // Batch has been filled up
         if t_batch + n_tokens > n_ctx as usize {
+            decode_batch(&s_sizes, &mut batch);
             t_batch = 0;
+            s_sizes.clear();
         }
+
+        batch.add_sequence(&tokens, s_sizes.len() as i32, false)?;
+        t_batch += n_tokens;
+        s_sizes.push(n_tokens);
     }
 
-    let last_index: i32 = (tokens.len() - 1) as i32;
-    for (i, token) in (0_i32..).zip(tokens.into_iter()) {
-        // llama_decode will output logits only for the last token of the prompt
-        let is_last = i == last_index;
-        batch.add(token, i, &[0], is_last)?;
+    // Handle last batch
+    decode_batch(&s_sizes, &mut batch);
+    for (i, embedding) in data.iter().enumerate() {
+        println!("Embedding {i}:\n  {embedding:?}\n")
     }
-    ctx.decode(&mut batch)
-        .with_context(|| "llama_decode() failed")?;
 
-    let n_embd = unsafe { llama_cpp_sys_2::llama_n_embd(model.model.as_ptr()) };
-    dbg!(n_embd);
-
-    let embeddings = unsafe { llama_cpp_sys_2::llama_get_embeddings(ctx.context.as_ptr()) };
-
-    let embeddings = unsafe { slice::from_raw_parts(embeddings, n_embd as usize) };
-
-    pub fn normalize(vec: &[f32]) -> Vec<f32> {
-        let magnitude = (vec.iter().fold(0.0, |acc, &val| val.mul_add(val, acc))).sqrt();
-
-        if magnitude > f32::EPSILON {
-            vec.iter().map(|&val| val / magnitude).collect()
-        } else {
-            vec.to_vec()
-        }
-    }
-    let norm_embeddings = normalize(embeddings);
-
-    println!("Embeddings: {norm_embeddings:?}");
-
-    // OTHER
-    // let mut tokens = model.str_to_token("world", AddBos::Always)?;
-    // //unsafe { llama_cpp_sys_2::llama_kv_cache_clear(ctx.context.as_ptr()) };
-    // let mut batch = LlamaBatch::new(512, 1);
-    //
-    // let last_index: i32 = (tokens.len() - 1) as i32;
-    // for (i, token) in (0_i32..).zip(tokens.into_iter()) {
-    //     // llama_decode will output logits only for the last token of the prompt
-    //     let is_last = i == last_index;
-    //     batch.add(token, i, &[0], is_last)?;
-    // }
-    // ctx.decode(&mut batch)
-    //     .with_context(|| "llama_decode() failed")?;
-    //
-    // let n_embd = unsafe { llama_cpp_sys_2::llama_n_embd(model.model.as_ptr()) };
-    // dbg!(n_embd);
-    //
-    // let embeddings = unsafe { llama_cpp_sys_2::llama_get_embeddings(ctx.context.as_ptr()) };
-    //
-    // let embeddings = unsafe { slice::from_raw_parts(embeddings, n_embd as usize) };
-    //
-    // let norm_embeddings = normalize(embeddings);
-    //
-    // println!("Embeddings: {norm_embeddings:?}");
+    unsafe { llama_cpp_sys_2::llama_print_timings(ctx.raw_ctx().as_ptr()) }
 
     Ok(())
+}
+
+pub fn normalize(vec: &[f32]) -> Vec<f32> {
+    let magnitude = vec
+        .iter()
+        .fold(0.0, |acc, &val| val.mul_add(val, acc))
+        .sqrt();
+
+    if magnitude > f32::EPSILON {
+        vec.iter().map(|&val| val / magnitude).collect()
+    } else {
+        vec.to_vec()
+    }
+}
+
+fn print_tokens(model: &LlamaModel, tokens: &[LlamaToken]) {
+    println!("Number of tokens: {}", tokens.len());
+    for token in tokens {
+        println!(
+            "{:<6} -> {}",
+            token.0,
+            model.token_to_str(*token).unwrap(),
+            // width = 20
+        );
+    }
 }
