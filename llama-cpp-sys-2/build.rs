@@ -186,11 +186,6 @@ mod x86 {
     }
     impl Features {
         pub fn get() -> Self {
-            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            if std::env::var("HOST") == std::env::var("TARGET") {
-                return Self::get_host();
-            }
-
             Self::get_target()
         }
 
