@@ -88,7 +88,9 @@ fn main() -> Result<()> {
         batch.clear();
 
         for (i, &size) in sizes.iter().enumerate() {
-            let embedding = ctx.embeddings_ith(i as i32);
+            let embedding = ctx
+                .embeddings_ith(i as i32)
+                .expect("Embeddings are always enabled");
             // Either normalise immediately, or perform mean-pooling.
             let embedding = if normalise {
                 normalize(embedding)
