@@ -40,12 +40,12 @@ impl LlamaModel {
     ///
     /// # Panics
     ///
-    /// If the number of tokens the model was trained on does not fit into an `u16`. This should be impossible on most
+    /// If the number of tokens the model was trained on does not fit into an `u32`. This should be impossible on most
     /// platforms due to llama.cpp returning a `c_int` (i32 on most platforms) which is almost certainly positive.
     #[must_use]
-    pub fn n_ctx_train(&self) -> u16 {
+    pub fn n_ctx_train(&self) -> u32 {
         let n_ctx_train = unsafe { llama_cpp_sys_2::llama_n_ctx_train(self.model.as_ptr()) };
-        u16::try_from(n_ctx_train).expect("n_ctx_train fits into an u16")
+        u32::try_from(n_ctx_train).expect("n_ctx_train fits into an u32")
     }
 
     /// Get all tokens in the model.
