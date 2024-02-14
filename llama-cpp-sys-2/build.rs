@@ -119,11 +119,6 @@ fn main() {
         llama_cpp.define("__BSD_VISIBLE", None);
     }
 
-    if let Some(ggml_cuda) = ggml_cuda {
-        println!("compiling ggml-cuda");
-        ggml_cuda.compile("ggml-cuda");
-    }
-
     if cfg!(target_os = "linux") {
         ggml.define("_GNU_SOURCE", None);
     }
@@ -139,6 +134,20 @@ fn main() {
         .define("_XOPEN_SOURCE", Some("600"))
         .std("c++17")
         .file("llama.cpp/llama.cpp");
+
+    let is_release = env::var("PROFILE").unwrap() == "release";
+    if is_release {
+        ggml.define("NDEBUG", None);
+        llama_cpp.define("NDEBUG", None);
+        if let Some(cuda) = ggml_cuda.as_mut() {
+            cuda.define("NDEBUG", None);
+        }
+    }
+
+    if let Some(ggml_cuda) = ggml_cuda {
+        println!("compiling ggml-cuda");
+        ggml_cuda.compile("ggml-cuda");
+    }
 
     println!("compiling ggml");
     ggml.compile("ggml");
@@ -187,17 +196,6 @@ mod x86 {
     impl Features {
         pub fn get() -> Self {
             Self::get_target()
-        }
-
-        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-        pub fn get_host() -> Self {
-            Self {
-                fma: std::is_x86_feature_detected!("fma"),
-                avx: std::is_x86_feature_detected!("avx"),
-                avx2: std::is_x86_feature_detected!("avx2"),
-                f16c: std::is_x86_feature_detected!("f16c"),
-                sse3: std::is_x86_feature_detected!("sse3"),
-            }
         }
 
         pub fn get_target() -> Self {

@@ -596,6 +596,7 @@ dependencies = [
  "criterion",
  "hf-hub",
  "llama-cpp-sys-2",
+ "log",
  "thiserror",
  "tracing",
 ]
