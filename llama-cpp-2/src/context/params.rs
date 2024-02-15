@@ -254,6 +254,18 @@ impl LlamaContextParams {
         self.context_params.n_threads
     }
 
+    /// Get the number of threads allocated for batches.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// let params = llama_cpp_2::context::params::LlamaContextParams::default();
+    /// assert_eq!(params.n_threads_batch(), 4);
+    /// ```
+    #[must_use] pub fn n_threads_batch(&self) -> u32 {
+        self.context_params.n_threads_batch
+    }
+
     /// Set the number of threads.
     ///
     /// # Examples
@@ -266,6 +278,21 @@ impl LlamaContextParams {
     /// ```
     #[must_use] pub fn with_n_threads(mut self, n_threads: u32) -> Self {
         self.context_params.n_threads = n_threads;
+        self
+    }
+
+    /// Set the number of threads allocated for batches.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use llama_cpp_2::context::params::LlamaContextParams;
+    /// let params = LlamaContextParams::default()
+    ///    .with_n_threads(8);
+    /// assert_eq!(params.n_threads_batch(), 8);
+    /// ```
+    #[must_use] pub fn with_n_threads_batch(mut self, n_threads: u32) -> Self {
+        self.context_params.n_threads_batch = n_threads;
         self
     }
 
